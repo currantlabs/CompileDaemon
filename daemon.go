@@ -57,8 +57,6 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"github.com/fatih/color"
-	"github.com/howeyc/fsnotify"
 	"io"
 	"log"
 	"os"
@@ -68,6 +66,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/fatih/color"
+	"gopkg.in/fsnotify.v1"
 )
 
 // Milliseconds to wait for the next job to begin after a file change
@@ -355,7 +356,7 @@ func main() {
 				if flag_excludedDirs.Matches(info.Name()) {
 					return filepath.SkipDir
 				} else {
-					return watcher.Watch(path)
+					return watcher.Add(path)
 				}
 			}
 			return err
@@ -365,8 +366,12 @@ func main() {
 			log.Fatal("filepath.Walk():", err)
 		}
 
+		if err := watcher.Add(*flag_directory); err != nil {
+			log.Fatal("watcher.Watch():", err)
+		}
+
 	} else {
-		if err := watcher.Watch(*flag_directory); err != nil {
+		if err := watcher.Add(*flag_directory); err != nil {
 			log.Fatal("watcher.Watch():", err)
 		}
 	}
@@ -386,18 +391,26 @@ func main() {
 
 	for {
 		select {
-		case ev := <-watcher.Event:
-			if ev.Name != "" {
+		case ev := <-watcher.Events:
+			if ev.Name == "" {
+				//should be a bug for fsnotify
+				continue
+			}
+			if ev.Op&fsnotify.Remove == fsnotify.Remove ||
+				(ev.Op&fsnotify.Write == fsnotify.Write ||
+					ev.Op&fsnotify.Create == fsnotify.Create) {
+				log.Println(okColor("File changed!"), okColor(ev.Name))
 				base := filepath.Base(ev.Name)
 
 				if flag_includedFiles.Matches(base) || matchesPattern(pattern, ev.Name) {
 					if !flag_excludedFiles.Matches(base) {
+						log.Println(okColor("Queuing..."), okColor(ev.Name))
 						jobs <- ev.Name
 					}
 				}
 			}
 
-		case err := <-watcher.Error:
+		case err := <-watcher.Errors:
 			if v, ok := err.(*os.SyscallError); ok {
 				if v.Err == syscall.EINTR {
 					continue
