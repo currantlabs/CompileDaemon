@@ -195,7 +195,7 @@ func logger(pipeChan <-chan io.ReadCloser) {
 			if *flag_logprefix {
 				log.Print(prefix, " ", line)
 			} else {
-				log.Print(line)
+				fmt.Print(line)
 			}
 		}
 	}
